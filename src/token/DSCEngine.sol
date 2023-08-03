@@ -27,13 +27,15 @@ contract DSCEngine is DSCEngineInterface, ReentrancyGuard {
     error DSCEngine__TransferFailed();
     error DSCEngine__BreakHealthFactor(uint256 healtFactor);
     error DSCEngine__MintFailed();
+    error DSCEngine__HealthFactorOk();
 
     // ========== State Variables
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
     uint256 private constant LIQUITDATION_THRESHOLD = 50; //Ngưỡng thanh lý, giá trị tài sản thế chấp phải lớn hơn 50usd so với giá trị của dsc được mint - 150% overcollateralized
     uint256 private constant LIQUITDATION_PRECISION = 100;
-    uint256 private constant MIN_HELTH_FACTOR = 1;
+    uint256 private constant MIN_HELTH_FACTOR = 1e18;
+    uint256 private constant LIQUIDATION_BONUS = 10;
 
     mapping(address token => address priceFeed) private s_priceFeeds; // token to priceFeed
     mapping(address user => mapping(address token => uint256 amount))
@@ -48,6 +50,12 @@ contract DSCEngine is DSCEngineInterface, ReentrancyGuard {
         address indexed user,
         address indexed token,
         uint256 indexed amount
+    );
+    event CollateralRedeemed(
+        address indexed addressFrom,
+        address indexed addressTo,
+        address indexed token,
+        uint256 amount
     );
 
     // ========== Modifiers
@@ -86,24 +94,37 @@ contract DSCEngine is DSCEngineInterface, ReentrancyGuard {
     // ========== Functions
 
     // ========== External Functions
-    function depositCollateralAndMintDSC() external {}
+    function depositCollateralAndMintDSC(
+        address tokenCollateralAddress,
+        uint256 amountCollateral,
+        uint256 amountDSCToMint
+    ) external {
+        depositCollateral(tokenCollateralAddress, amountCollateral);
+        mintDSC(amountDSCToMint);
+    }
 
     // Follow CEI Design Pattern
     function depositCollateral(
         address tokenCollateralAddress,
-        uint256 amount
+        uint256 amountCollateral
     )
-        external
-        moreThanZero(amount)
+        public
+        moreThanZero(amountCollateral)
         isAllowedToken(tokenCollateralAddress)
         nonReentrant
     {
-        s_collateralDeposited[msg.sender][tokenCollateralAddress] += amount;
-        emit ColatteralDeposited(msg.sender, tokenCollateralAddress, amount);
+        s_collateralDeposited[msg.sender][
+            tokenCollateralAddress
+        ] += amountCollateral;
+        emit ColatteralDeposited(
+            msg.sender,
+            tokenCollateralAddress,
+            amountCollateral
+        );
         bool success = IERC20(tokenCollateralAddress).transferFrom(
             msg.sender,
             address(this),
-            amount
+            amountCollateral
         );
         if (!success) {
             revert DSCEngine__TransferFailed();
@@ -112,28 +133,140 @@ contract DSCEngine is DSCEngineInterface, ReentrancyGuard {
 
     // 1. Check giá trị của tài sản thế chấp phải lớn hơn số lượng DSC được mint ra.
     function mintDSC(
-        uint256 amountToMint
-    ) external moreThanZero(amountToMint) nonReentrant {
-        s_DSCMinted[msg.sender] += amountToMint;
+        uint256 amountDSCToMint
+    ) public moreThanZero(amountDSCToMint) nonReentrant {
+        s_DSCMinted[msg.sender] += amountDSCToMint;
         _revertIfHelthFactorBroken(msg.sender);
 
-        bool minted = i_dsc.mint(msg.sender, amountToMint);
+        bool minted = i_dsc.mint(msg.sender, amountDSCToMint);
         if (!minted) {
             revert DSCEngine__MintFailed();
         }
     }
 
-    function redeemCollateralForDSC() external {}
+    function redeemCollateralForDSC(
+        address tokenCollateralAddress,
+        uint256 amountCollateral,
+        uint256 amountDSCToBurn
+    ) external {
+        burnDSC(amountDSCToBurn);
+        redeemCollateral(tokenCollateralAddress, amountCollateral);
+        // redeemCollateral already check healthFactor
+    }
 
-    function redeemCollateral() external {}
+    // Muốn redeem lại tài sản đã thê chấp thì user cần phải:
+    // 1 health factor phải cao hơn 1
+    function redeemCollateral(
+        address tokenCollateralAddress,
+        uint256 amountCollateral
+    ) public moreThanZero(amountCollateral) nonReentrant {
+        _redeemCollateral(
+            msg.sender,
+            msg.sender,
+            tokenCollaterallAddress,
+            amountCollateral
+        );
+        _revertIfHelthFactorBroken(msg.sender);
+    }
 
-    function burnDSC() external {}
+    function burnDSC(
+        uint256 amountDSCToBurn
+    ) public moreThanZero(amountDSCToBurn) {
+        s_DSCMinted[msg.sender] -= amountDSCToBurn;
+        bool success = i_dsc.transferFrom(
+            msg.sender,
+            address(this),
+            amountDSCToBurn
+        );
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
+        i_dsc.burn(amountDSCToBurn);
+        _revertIfHelthFactorBroken(msg.sender);
+    }
 
-    function liquidate() external view {}
+    // nếu giao thức bắt đầu gần đến mức dưới mức thế chấp, chúng ta cần ai đó thanh lý vị thế (gọi là liquidator)
+
+    // $100 ETH backing $50 DSC (is fine)
+    // $20 ETH backing $50 DSC (!!! warning, DSC không đáng 1$)
+
+    // Nên khi gần đến ngưỡng thanh lí, ví dụ: $75 ETH backing $50 DSC
+    // Liquidator sẽ lấy $75 ETH và đốt $50 DSC họ đang nắm giữ để giữ cho giao thức ổn định
+
+    // Nếu user nào gần như là dưới mức thế chấp, giao thức sẽ cho phép các liquidator thanh lí tài sản của user đó
+
+    /**
+    @param collateral địa chỉ tài sản thế chấp để thanh lý
+    @param user người dùng sẽ bị thanh lý nếu health factor dưới 1
+    @param debtToCover số lượng DSC bạn liquidator muốn đốt để cải thiện chỉ số heath factor của người dùng
+    @notice liquidator có thể thanh lý một phần tài sản của user
+    @notice liquidator sẽ nhận được 10% LIQUIDATION_BONUS khi nhận lấy tài sản thế chấp của người dùng
+    @notice Nếu mức thế chấp của giao thức chỉ là 100% thì giao thức sẽ không thể thanh lý được ai cả. Ví dụ là nếu giá của tài sản thế chấp giảm mạnh trước khi bất kỳ ai bị thanh lý.
+    @notice Giao thức sẽ được thế chấp ở mức 150% để chức năng này hoạt động
+     */
+    function liquidate(
+        address collateral,
+        address user,
+        uint256 debtToCover
+    ) external moreThanZero(debtToCover) nonReentrant {
+        // Check health factor của người dùng
+        uint256 startingUserHealthFactor = _healthFactor(user);
+        if (startingUserHealthFactor >= MIN_HELTH_FACTOR) {
+            revert DSCEngine__HealthFactorOk();
+        }
+
+        // Đốt số nợ DSC của user
+        // Lấy collateral của user đó
+        // Bad user: $140 ETH => $100 DSC
+        // debtToCover = $100
+        // $100 DSC == ??? ETH - tìm xem với $100 DSC hiện tại thì đổi ra được bao nhiêu ETH
+        // 0.05 ETH
+        uint256 tokenAmountFromDebtCovered = getTokenAmountFromUSD(
+            collateral,
+            debtToCover
+        );
+        // Trả cho liquidator 10% bonus. Ví dụ: liquidator sẽ nhận được $110 wETH (từ người dùng bị thanh lý) khi họ đốt $100 DSC
+        // Triển khai tính năng thanh lý trước khi giao thức bị vỡ nợ
+        // Lấy thêm một số lượng vào trong treasury
+        uint256 bonusCollateral = (tokenAmountFromDebtCovered *
+            LIQUIDATION_BONUS) / LIQUITDATION_PRECISION;
+
+        uint256 totalCollateralToRedeem = tokenAmountFromDebtCovered +
+            bonusCollateral;
+
+        _redeemCollateral(
+            user,
+            msg.sender,
+            collateral,
+            totalCollateralToRedeem
+        );
+    }
 
     function getHealthFactor() external {}
 
     // ========== Private & Internal View Functions
+    function _redeemCollateral(
+        address from,
+        address to,
+        address tokenCollaterallAddress,
+        uint256 amountCollateral
+    ) private {
+        s_collateralDeposited[from][tokenCollateralAddress] -= amountCollateral;
+        emit CollateralRedeemed(
+            from,
+            to,
+            tokenCollateralAddress,
+            amountCollateral
+        );
+        bool success = IERC20(tokenCollateralAddress).transfer(
+            to,
+            amountCollateral
+        );
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
+    }
+
     function _getAccountInformation(
         address user
     )
@@ -172,6 +305,21 @@ contract DSCEngine is DSCEngineInterface, ReentrancyGuard {
     }
 
     // ========== Public & External View Functions
+    function getTokenAmountFromUSD(
+        address token,
+        uint256 usdAmountInWei
+    ) public view returns (uint256) {
+        // tìm ra giá trị của token
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(
+            s_priceFeeds[token]
+        );
+        (, int price, , , ) = priceFeed.latestRoundData();
+
+        // ($10e18 * 1e18) / (2000e8 *1e10) - Ví dụ: 10DSC / 2000 (giá ví dụ của ETH)
+        return ((usdAmountInWei * PRECISION) /
+            (uint256(price) * ADDITIONAL_FEED_PRECISION));
+    }
+
     function getAccountCollateralValueInUSD(
         address user
     ) public view returns (uint256 totalCollateralInUsd) {

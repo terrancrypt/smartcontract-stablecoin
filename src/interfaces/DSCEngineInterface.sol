@@ -9,35 +9,43 @@ interface DSCEngineInterface {
     /**
      * @notice thế chấp tài sản và mint DSC
      */
-    function depositCollateralAndMintDSC() external;
-
-    /**
-     * @param tokenCollateralContract địa chỉ của token nạp vào như một tài sản thế chấp
-     * @param amount số lượng token
-     */
-    function depositCollateral(
-        address tokenCollateralContract,
-        uint256 amount
+    function depositCollateralAndMintDSC(
+        address tokenCollateralAddress,
+        uint256 amountCollateral,
+        uint256 amountDSCToMint
     ) external;
 
     /**
+     * @param tokenCollateralContract địa chỉ của token nạp vào như một tài sản thế chấp
+     * @param amountCollateral số lượng token
+     */
+    // function depositCollateral(
+    //     address tokenCollateralContract,
+    //     uint256 amountCollateral
+    // ) public;
+
+    /**
      * @notice mintDSC
-     * @param amountToMint số lượng token DSC muốn mint
+     * @param amountDSCToMint số lượng token DSC muốn mint
      * @notice giá trị của tài sản thế chấp phải ở ngưỡng tối thiểu cho phép. Ví dụ: $200 ETH => $20 DSC
      */
-    function mintDSC(uint256 amountToMint) external;
+    // function mintDSC(uint256 amountDSCToMint) public;
 
     /**
      * @notice trả lại DSC đã mint và chuộc lại tài sản thể chấp
      */
-    function redeemCollateralForDSC() external;
+    function redeemCollateralForDSC(
+        address tokenCollateralAddress,
+        uint256 amountCollateral,
+        uint256 amountDSCToBurn
+    ) external;
 
-    function redeemCollateral() external;
+    // function redeemCollateral() external;
 
     /**
      * @notice đốt DSC khi user trả lại tài sản thế chấp
      */
-    function burnDSC() external;
+    // function burnDSC() external;
 
     /**
      * @notice thanh lý tài sản
