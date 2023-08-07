@@ -27,7 +27,7 @@ contract DecentralizedStableCoinERC20 is ERC20Burnable, Ownable {
     function burn(uint256 _amount) public override onlyOwner {
         uint256 balance = balanceOf(msg.sender);
 
-        if (_amount >= 0) {
+        if (_amount <= 0) {
             revert DecentralizedStableCoin__MustBeMoreThanZero();
         }
 
@@ -41,7 +41,10 @@ contract DecentralizedStableCoinERC20 is ERC20Burnable, Ownable {
     /**
      * @notice hàm mint không thực sự ghi đè chức năng gì của function gốc nên không cần override và gọi hàm super
      */
-    function mint(address _to, uint256 _amount) external onlyOwner returns (bool) {
+    function mint(
+        address _to,
+        uint256 _amount
+    ) external onlyOwner returns (bool) {
         if (_to == address(0)) {
             revert DecentralizedStableCoin__NotZeroAddress();
         }

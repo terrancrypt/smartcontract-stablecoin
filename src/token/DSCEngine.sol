@@ -28,11 +28,12 @@ contract DSCEngine is DSCEngineInterface, ReentrancyGuard {
     error DSCEngine__BreakHealthFactor(uint256 healtFactor);
     error DSCEngine__MintFailed();
     error DSCEngine__HealthFactorOk();
+    error DSCEngine__HealthFactorNotImproved();
 
     // ========== State Variables
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
-    uint256 private constant LIQUITDATION_THRESHOLD = 50; //Ngưỡng thanh lý, giá trị tài sản thế chấp phải lớn hơn 50usd so với giá trị của dsc được mint - 150% overcollateralized
+    uint256 private constant LIQUIDATION_THRESHOLD = 50; //Ngưỡng thanh lý, giá trị tài sản thế chấp phải lớn hơn 50usd so với giá trị của dsc được mint - 150% overcollateralized
     uint256 private constant LIQUITDATION_PRECISION = 100;
     uint256 private constant MIN_HELTH_FACTOR = 1e18;
     uint256 private constant LIQUIDATION_BONUS = 10;
@@ -149,9 +150,14 @@ contract DSCEngine is DSCEngineInterface, ReentrancyGuard {
         uint256 amountCollateral,
         uint256 amountDSCToBurn
     ) external {
-        burnDSC(amountDSCToBurn);
-        redeemCollateral(tokenCollateralAddress, amountCollateral);
-        // redeemCollateral already check healthFactor
+        _burnDSC(amountDSCToBurn, msg.sender, msg.sender);
+        _redeemCollateral(
+            msg.sender,
+            msg.sender,
+            tokenCollateralAddress,
+            amountCollateral
+        );
+        _revertIfHelthFactorBroken(msg.sender);
     }
 
     // Muốn redeem lại tài sản đã thê chấp thì user cần phải:
@@ -163,7 +169,7 @@ contract DSCEngine is DSCEngineInterface, ReentrancyGuard {
         _redeemCollateral(
             msg.sender,
             msg.sender,
-            tokenCollaterallAddress,
+            tokenCollateralAddress,
             amountCollateral
         );
         _revertIfHelthFactorBroken(msg.sender);
@@ -172,16 +178,7 @@ contract DSCEngine is DSCEngineInterface, ReentrancyGuard {
     function burnDSC(
         uint256 amountDSCToBurn
     ) public moreThanZero(amountDSCToBurn) {
-        s_DSCMinted[msg.sender] -= amountDSCToBurn;
-        bool success = i_dsc.transferFrom(
-            msg.sender,
-            address(this),
-            amountDSCToBurn
-        );
-        if (!success) {
-            revert DSCEngine__TransferFailed();
-        }
-        i_dsc.burn(amountDSCToBurn);
+        _burnDSC(amountDSCToBurn, msg.sender, msg.sender);
         _revertIfHelthFactorBroken(msg.sender);
     }
 
@@ -240,15 +237,45 @@ contract DSCEngine is DSCEngineInterface, ReentrancyGuard {
             collateral,
             totalCollateralToRedeem
         );
+
+        // Burn DSC khi rút tài sản thế chấp thành công
+        _burnDSC(debtToCover, user, msg.sender);
+
+        uint256 endingUserHealthFactor = _healthFactor(user);
+        if (endingUserHealthFactor <= startingUserHealthFactor) {
+            revert DSCEngine__HealthFactorNotImproved();
+        }
+        _revertIfHelthFactorBroken(msg.sender);
     }
 
     function getHealthFactor() external {}
 
     // ========== Private & Internal View Functions
+
+    /**
+    @dev low-level internal function, không gọi function này trừ khi đã check health factor của address user burn dsc
+     */
+    function _burnDSC(
+        uint256 amountDSCToBurn,
+        address onBehalfOf,
+        address toFrom
+    ) private {
+        s_DSCMinted[onBehalfOf] -= amountDSCToBurn;
+        bool success = i_dsc.transferFrom(
+            toFrom,
+            address(this),
+            amountDSCToBurn
+        );
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
+        i_dsc.burn(amountDSCToBurn);
+    }
+
     function _redeemCollateral(
         address from,
         address to,
-        address tokenCollaterallAddress,
+        address tokenCollateralAddress,
         uint256 amountCollateral
     ) private {
         s_collateralDeposited[from][tokenCollateralAddress] -= amountCollateral;
@@ -289,9 +316,18 @@ contract DSCEngine is DSCEngineInterface, ReentrancyGuard {
             uint256 totalDSCMinted,
             uint256 collateralValueInUSD
         ) = _getAccountInformation(user);
-        uint256 collateralAdjustedForThreshold = (collateralValueInUSD /
-            LIQUITDATION_THRESHOLD) / LIQUITDATION_PRECISION;
-        return ((collateralAdjustedForThreshold * PRECISION) / totalDSCMinted);
+        return _calculateHealthFactor(totalDSCMinted, collateralValueInUSD);
+    }
+
+    function _calculateHealthFactor(
+        uint256 totalDSCMinted,
+        uint256 collateralValueInUSD
+    ) internal pure returns (uint256) {
+        if (totalDSCMinted == 0) return type(uint256).max;
+
+        uint256 collateralAdjustedForThreshold = (collateralValueInUSD *
+            LIQUIDATION_THRESHOLD) / 100;
+        return (collateralAdjustedForThreshold * 1e18) / totalDSCMinted;
     }
 
     // 1. Check health factor (kiểm tra xem người dùng có đủ tài sản thế chấp hay không?)
@@ -342,5 +378,32 @@ contract DSCEngine is DSCEngineInterface, ReentrancyGuard {
         (, int price, , , ) = priceFeed.latestRoundData();
         return
             ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION;
+    }
+
+    function getAccountInformation(
+        address user
+    )
+        external
+        view
+        returns (uint256 totalDSCMinted, uint256 collateralValueInUSD)
+    {
+        return _getAccountInformation(user);
+    }
+
+    function getCollateralAmountOfAUser(
+        address user,
+        address token
+    ) external view returns (uint256) {
+        return s_collateralDeposited[user][token];
+    }
+
+    // function getDSCMintedAmountOfAUser(
+    //     address user
+    // ) external view returns (uint256) {
+    //     return s_DSCMinted[user];
+    // }
+
+    function getHealthFactor(address user) external view returns (uint256) {
+        return _healthFactor(user);
     }
 }

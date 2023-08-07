@@ -50,7 +50,11 @@ interface DSCEngineInterface {
     /**
      * @notice thanh lý tài sản
      */
-    function liquidate() external view;
+    function liquidate(
+        address collateral,
+        address user,
+        uint256 debtToCover
+    ) external;
 
     /**
      * @notice getHealthFactor
