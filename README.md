@@ -9,3 +9,10 @@
 3. Collateral (tài sản đảm bảo): Exogenous - crypto (Tài sản đảm bảo nằm ngoài giao thức, là crypto)
      1. wBTC
      2. wETH
+
+
+- calculate healthFactor function
+- set helth factor if debt (dsc minted) is 0
+
+1. invariants/properties của giao thức là gì?
+2. 

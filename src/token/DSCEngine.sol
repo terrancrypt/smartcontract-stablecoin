@@ -248,8 +248,6 @@ contract DSCEngine is DSCEngineInterface, ReentrancyGuard {
         _revertIfHelthFactorBroken(msg.sender);
     }
 
-    function getHealthFactor() external {}
-
     // ========== Private & Internal View Functions
 
     /**

@@ -59,7 +59,7 @@ interface DSCEngineInterface {
     /**
      * @notice getHealthFactor
      */
-    function getHealthFactor() external;
+    // function getHealthFactor() external;
 
     /**
      * @notice Returns the total collateral value in USD for a user
