@@ -19,7 +19,7 @@ import {AggregatorV3Interface} from "lib/chainlink/contracts/src/v0.8/interfaces
  *  @notice contract này là core của DSC System. Chứa mọi logic xử lý minting, redeeming, nạp và rút tài sản thế chấp.
  *  @notice contract này một chút dựa trên MakerDAO DSS (DAI) system.
  */
-contract DSCEngine is DSCEngineInterface, ReentrancyGuard {
+contract DSCEngine is ReentrancyGuard {
     // ========== Errors
     error DSCEngine__NeedsMoreThanZero();
     error DSCEngine__TokenAddressesAndPriceFeedAddressesMustBeSameLength();

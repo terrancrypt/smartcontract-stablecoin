@@ -56,8 +56,6 @@ contract OpenInvariantsTest is StdInvariant, Test {
             totalwBTCDeposited
         );
 
-        console.log("Total Supply: ", totalSupply);
-
         assert(wETHValue + wBTCValue >= totalSupply);
     }
 }

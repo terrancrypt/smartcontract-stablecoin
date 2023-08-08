@@ -30,10 +30,6 @@ contract HelperConfig is Script {
         }
     }
 
-    function run() public {
-        vm.startBroadcast();
-    }
-
     function getSepoliaETHConfig() public view returns (NetworkConfig memory) {
         return
             NetworkConfig({
@@ -56,15 +52,15 @@ contract HelperConfig is Script {
             DECIMALS,
             ETH_USD_PRICE
         );
-        // ERC20Mock wETHMock = new ERC20Mock("wETH", "wETH", msg.sender, 1000e8);
-        ERC20Mock wETHMock = new ERC20Mock();
+        ERC20Mock wETHMock = new ERC20Mock("wETH", "wETH", msg.sender, 1000e8);
+        // ERC20Mock wETHMock = new ERC20Mock();
 
         MockV3Aggregator btcUsdPriceFeed = new MockV3Aggregator(
             DECIMALS,
             BTC_USD_PRICE
         );
-        // ERC20Mock wBTCMock = new ERC20Mock("wBTC", "wBTC", msg.sender, 1000e8);
-        ERC20Mock wBTCMock = new ERC20Mock();
+        ERC20Mock wBTCMock = new ERC20Mock("wBTC", "wBTC", msg.sender, 1000e8);
+        // ERC20Mock wBTCMock = new ERC20Mock();
 
         vm.stopBroadcast();
 

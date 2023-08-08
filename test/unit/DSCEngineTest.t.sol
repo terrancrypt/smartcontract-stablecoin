@@ -118,7 +118,7 @@ contract DSCEngineTest is Test {
     }
 
     function testRevertWithUnapprovedCollateral() public {
-        ERC20Mock randomToken = new ERC20Mock();
+        ERC20Mock randomToken = new ERC20Mock("RAN", "RAN", USER, 100e18);
         vm.startPrank(USER);
         vm.expectRevert(DSCEngine.DSCEngine__NotAllowedToken.selector);
         dscEngine.depositCollateral(address(randomToken), AMOUNT_COLLATERAL);
