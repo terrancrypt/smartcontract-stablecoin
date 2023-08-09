@@ -9,7 +9,7 @@ import {DSCEngine} from "../../src/token/DSCEngine.sol";
 import {HelperConfig} from "../../script/helpers/HelperConfig.s.sol";
 import {ERC20Mock} from "lib/openzeppelin-contracts/contracts/mocks/ERC20Mock.sol";
 
-import {MockV3Aggregator} from "../../test/mocks/MockV3Aggreator.sol";
+import {MockV3Aggregator} from "../../test/mocks/MockV3Aggregator.sol";
 
 contract DSCEngineTest is Test {
     DeployDSC deployer;

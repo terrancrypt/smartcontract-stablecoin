@@ -6,6 +6,7 @@ import {DecentralizedStableCoinERC20} from "../token/DecentralizedStableCoinERC2
 import {ReentrancyGuard} from "lib/openzeppelin-contracts/contracts/security/ReentrancyGuard.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 import {AggregatorV3Interface} from "lib/chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import {OracleLib} from "../libraries/OracleLib.sol";
 
 /**
  * @title DSC Engine
@@ -29,6 +30,9 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__MintFailed();
     error DSCEngine__HealthFactorOk();
     error DSCEngine__HealthFactorNotImproved();
+
+    // ========== Type
+    using OracleLib for AggregatorV3Interface;
 
     // ========== State Variables
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
@@ -84,7 +88,7 @@ contract DSCEngine is ReentrancyGuard {
         }
 
         // USD Price Feed. Example: BTC / USD or ETH / USD
-        for (uint256 i = 0; i < tokenAddresses.length; i++) {
+        for (uint160 i = 0; i < tokenAddresses.length; i++) {
             s_priceFeeds[tokenAddresses[i]] = priceFeedAddresses[i];
             s_collateralTokens.push(tokenAddresses[i]);
         }
@@ -347,7 +351,7 @@ contract DSCEngine is ReentrancyGuard {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(
             s_priceFeeds[token]
         );
-        (, int price, , , ) = priceFeed.latestRoundData();
+        (, int price, , , ) = priceFeed.staleCheckLastedRoundData();
 
         // ($10e18 * 1e18) / (2000e8 *1e10) - Ví dụ: 10DSC / 2000 (giá ví dụ của ETH)
         return ((usdAmountInWei * PRECISION) /
@@ -373,7 +377,7 @@ contract DSCEngine is ReentrancyGuard {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(
             s_priceFeeds[token]
         );
-        (, int price, , , ) = priceFeed.latestRoundData();
+        (, int price, , , ) = priceFeed.staleCheckLastedRoundData();
         return
             ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION;
     }
@@ -403,5 +407,15 @@ contract DSCEngine is ReentrancyGuard {
 
     function getHealthFactor(address user) external view returns (uint256) {
         return _healthFactor(user);
+    }
+
+    function getCollateralTokens() external view returns (address[] memory) {
+        return s_collateralTokens;
+    }
+
+    function getCollateralTokenPriceFeed(
+        address token
+    ) external view returns (address) {
+        return s_priceFeeds[token];
     }
 }
