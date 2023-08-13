@@ -13,6 +13,3 @@
 
 - calculate healthFactor function
 - set helth factor if debt (dsc minted) is 0
-
-1. invariants/properties của giao thức là gì?
-2. 
